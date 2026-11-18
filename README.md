@@ -1,9 +1,9 @@
-# Run commands in a VM without network access – preview on OpenShift Virtualization 5.0
+# Run commands in a VM without network access – preview on OpenShift Virtualization 4.20 and 5.0
 
 This guide shows how to use virtctl to open an SSH session and copy files through
 the OpenShift API when a VM has no reachable IP address. The examples were tested
-on OpenShift Virtualization 5.0.0 with the upstream virtctl v1.10.0-rc.1 client.
-This configuration is unsupported on 5.0. Please use a dedicated test cluster.
+on OpenShift Virtualization 4.20.35 and 5.0.0 with the upstream virtctl v1.10.0-rc.1 client.
+This configuration is unsupported on 4.20 and 5.0. Please use a dedicated test cluster.
 
 Behind the scenes, `virtctl` reaches the guest's SSH server through the cluster
 API and a virtio-vsock host-guest channel. VSOCK doesn't require inbound TCP
@@ -12,18 +12,18 @@ this is the `--vsock` flag.
 
 Tested guests: RHEL 8, 9, 10, Windows Server 2025 and Windows 11 (see [Tested](#tested)).
 
-## Limitations in 5.0
+## Limitations in 4.20 and 5.0
 
-- **Feature gate:** OpenShift Virtualization 5.0 is based on KubeVirt 1.9, where the
-  `VSOCK` feature gate is Alpha and off by default. Turning it on needs the
-  **unsupported** jsonpatch annotation (step 1).
-- **Client:** the `virtctl` shipped with 5.0 has no `--vsock` option. This guide uses
-  the upstream KubeVirt v1.10.0-rc.1 `virtctl` (step 2).
+- **Feature gate:** OpenShift Virtualization 4.20 is based on KubeVirt 1.6 and 5.0 on
+  KubeVirt 1.9. In both, the `VSOCK` feature gate is Alpha and off by default. Turning
+  it on needs the **unsupported** jsonpatch annotation (step 1).
+- **Client:** the `virtctl` shipped with 4.20 (v1.6) and 5.0 (v1.9) has no `--vsock` option.
+  This guide uses the upstream KubeVirt v1.10.0-rc.1 `virtctl` (step 2).
 - **Annotation side effects:** HCO reports `TaintedConfiguration=True` while the annotation is set.
-- **Version mismatch:** the upstream 1.10 `virtctl` isn't the client shipped with 5.0. We tested this combination with the guest images listed below.
+- **Version mismatch:** the upstream 1.10 `virtctl` isn't the client shipped with 4.20 or 5.0. We tested this combination with the guest images listed below.
 - **RBAC:** non-cluster-admin users need extra permissions, even namespace admins. A cluster-admin grants them (step 3).
 - **VM changes:** VMs need `autoattachVSOCK: true`. Adding it to an existing VM takes effect after a restart.
-- **Gate off:** while the gate is off, VMs that set `autoattachVSOCK: true` can't be created or started. VMs that are already running keep their vsock device, and stay reachable over it, until they are stopped.
+- **Gate off:** while the gate is off, VMs that set `autoattachVSOCK: true` can't be created or started. They also can't be stopped or changed, except by removing `autoattachVSOCK`; deleting them works. VMs that are already running keep their vsock device, and stay reachable over it, until they are stopped.
 
 Guest support:
 
@@ -121,6 +121,8 @@ Copy files, or forward the guest's SSH port to your workstation for other SSH to
 ```
 
 `--vsock-tls=false` is required for SSH. `virtctl ssh/scp` set it automatically.
+If you forward to the same local port for different VMs, SSH warns about a changed
+host key. Add `-o HostKeyAlias=<vm>.$NS` to the `ssh` command to keep one key per VM.
 
 ## Existing RHEL 8/9 VMs
 
@@ -227,7 +229,20 @@ Run `./cluster/disable-vsock.sh` before you upgrade OpenShift Virtualization.
 
 ## Tested
 
-OpenShift Virtualization 5.0.0 (KubeVirt v1.9.0), `virtctl` v1.10.0-rc.1, SELinux enforcing:
+`virtctl` v1.10.0-rc.1, SELinux enforcing.
+
+OpenShift Virtualization 4.20.35 (KubeVirt v1.6.6), all steps of this guide run as a
+namespace admin with the step 3 Role:
+
+| Guest | Result |
+|---|---|
+| RHEL 10.3 | ✅ |
+| RHEL 9.9 | ✅ |
+| RHEL 8.10 | ✅ |
+| Windows Server 2025 (26100), `vms/windows2k25-vsock.yaml`, SSH key login, then `enable-ssh.ps1` | ✅ |
+| Windows 11 Pro 25H2 (26200), `vms/windows11-vsock.yaml`, SSH key login | ✅ |
+
+OpenShift Virtualization 5.0.0 (KubeVirt v1.9.0):
 
 | Guest | Result |
 |---|---|
@@ -242,5 +257,5 @@ Also tested without working networking. `virtctl ssh/scp --vsock` work in all of
 
 | Case | Guest |
 |---|---|
-| No network interface (`autoattachPodInterface: false`), only loopback in the guest | RHEL 10, Windows Server 2025 |
-| Network adapter disabled inside the guest (no IP, no internet); regular `virtctl ssh` fails | Windows Server 2025 |
+| No network interface (`autoattachPodInterface: false`), only loopback in the guest | RHEL 10, Windows Server 2025 (4.20 and 5.0) |
+| Network adapter disabled inside the guest (no IP, no internet); regular `virtctl ssh` fails | Windows Server 2025 (4.20 and 5.0) |
