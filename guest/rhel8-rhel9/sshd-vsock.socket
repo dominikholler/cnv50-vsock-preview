@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenSSH server socket (AF_VSOCK)
+Documentation=man:systemd.socket(5)
+
+[Socket]
+ListenStream=vsock::22
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,242 @@
+# Windows 11 Pro VM, installed unattended from the Microsoft ISO,
+# reachable with `virtctl ssh --vsock`. Needs the ISO from windows11-iso.yaml.
+# The VM needs internet access during setup: OpenSSH Server is downloaded
+# from Windows Update. For more VMs, change all "windows11-vsock" names.
+#
+#   sed "s|REPLACE_WITH_YOUR_SSH_PUBLIC_KEY|$(cat ~/.ssh/vsock_test.pub)|" windows11-vsock.yaml | oc apply -n $NS -f -
+#
+# The first boot stops at "Press any key to boot from CD or DVD": press a key in the VNC console.
+# Administrator password (console only): 123456 - change it in autounattend.xml below.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: windows11-vsock
+spec:
+  runStrategy: Always
+  instancetype:
+    kind: VirtualMachineClusterInstancetype
+    name: u1.large
+  preference:
+    kind: VirtualMachineClusterPreference
+    name: windows.11.virtio
+  dataVolumeTemplates:
+    - metadata:
+        name: windows11-vsock-root
+      spec:
+        source:
+          blank: {}
+        storage:
+          resources:
+            requests:
+              storage: 64Gi
+    - metadata:
+        name: windows11-vsock-iso
+      spec:
+        # Clone of the ISO imported once by windows11-iso.yaml
+        sourceRef:
+          kind: DataSource
+          name: windows11-iso
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources: {}
+  template:
+    spec:
+      domain:
+        devices:
+          autoattachVSOCK: true
+          disks:
+            - bootOrder: 1
+              disk:
+                bus: virtio
+              name: rootdisk
+            - bootOrder: 2
+              cdrom:
+                bus: sata
+              name: win-iso
+            - cdrom:
+                bus: sata
+              name: windows-drivers-disk
+            - cdrom:
+                bus: sata
+              name: sysprep
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: windows11-vsock-root
+        - name: win-iso
+          dataVolume:
+            name: windows11-vsock-iso
+        - name: windows-drivers-disk
+          containerDisk:
+            image: registry.redhat.io/container-native-virtualization/virtio-win-rhel9:v5.0
+        - name: sysprep
+          sysprep:
+            configMap:
+              name: windows11-vsock-sysprep
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: windows11-vsock-sysprep
+data:
+  # Windows Setup answer file: installs Windows 11 Pro, skips OOBE, logs in
+  # as Administrator once and runs post-install.ps1 from the sysprep CD (F:).
+  autounattend.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <settings pass="windowsPE">
+        <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <SetupUILanguage>
+            <UILanguage>en-US</UILanguage>
+          </SetupUILanguage>
+          <InputLocale>0409:00000409</InputLocale>
+          <SystemLocale>en-US</SystemLocale>
+          <UILanguage>en-US</UILanguage>
+          <UserLocale>en-US</UserLocale>
+        </component>
+        <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <DriverPaths>
+            <PathAndCredentials wcm:action="add" wcm:keyValue="1">
+              <Path>E:\viostor\w11\amd64</Path>
+            </PathAndCredentials>
+            <PathAndCredentials wcm:action="add" wcm:keyValue="2">
+              <Path>E:\NetKVM\w11\amd64</Path>
+            </PathAndCredentials>
+          </DriverPaths>
+        </component>
+        <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <DiskConfiguration>
+            <WillShowUI>OnError</WillShowUI>
+            <Disk wcm:action="add">
+              <CreatePartitions>
+                <CreatePartition wcm:action="add">
+                  <Order>1</Order>
+                  <Type>EFI</Type>
+                  <Size>260</Size>
+                </CreatePartition>
+                <CreatePartition wcm:action="add">
+                  <Order>2</Order>
+                  <Type>MSR</Type>
+                  <Size>16</Size>
+                </CreatePartition>
+                <CreatePartition wcm:action="add">
+                  <Order>3</Order>
+                  <Type>Primary</Type>
+                  <Extend>true</Extend>
+                </CreatePartition>
+              </CreatePartitions>
+              <ModifyPartitions>
+                <ModifyPartition wcm:action="add">
+                  <Order>1</Order>
+                  <PartitionID>1</PartitionID>
+                  <Format>FAT32</Format>
+                  <Label>EFI</Label>
+                </ModifyPartition>
+                <ModifyPartition wcm:action="add">
+                  <Order>2</Order>
+                  <PartitionID>2</PartitionID>
+                </ModifyPartition>
+                <ModifyPartition wcm:action="add">
+                  <Order>3</Order>
+                  <PartitionID>3</PartitionID>
+                  <Format>NTFS</Format>
+                  <Label>Windows</Label>
+                  <Letter>C</Letter>
+                </ModifyPartition>
+              </ModifyPartitions>
+              <DiskID>0</DiskID>
+              <WillWipeDisk>true</WillWipeDisk>
+            </Disk>
+          </DiskConfiguration>
+          <ImageInstall>
+            <OSImage>
+              <InstallFrom>
+                <MetaData wcm:action="add">
+                  <Key>/IMAGE/NAME</Key>
+                  <Value>Windows 11 Pro</Value>
+                </MetaData>
+              </InstallFrom>
+              <InstallTo>
+                <DiskID>0</DiskID>
+                <PartitionID>3</PartitionID>
+              </InstallTo>
+            </OSImage>
+          </ImageInstall>
+          <UserData>
+            <AcceptEula>true</AcceptEula>
+            <ProductKey>
+              <Key/>
+            </ProductKey>
+          </UserData>
+        </component>
+      </settings>
+      <settings pass="specialize">
+        <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <InputLocale>0409:00000409</InputLocale>
+          <SystemLocale>en-US</SystemLocale>
+          <UILanguage>en-US</UILanguage>
+          <UserLocale>en-US</UserLocale>
+        </component>
+      </settings>
+      <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <OOBE>
+            <HideEULAPage>true</HideEULAPage>
+            <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+            <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+            <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+            <NetworkLocation>Work</NetworkLocation>
+            <SkipUserOOBE>true</SkipUserOOBE>
+            <SkipMachineOOBE>true</SkipMachineOOBE>
+            <ProtectYourPC>3</ProtectYourPC>
+          </OOBE>
+          <UserAccounts>
+            <AdministratorPassword>
+              <Value>123456</Value>
+              <PlainText>true</PlainText>
+            </AdministratorPassword>
+          </UserAccounts>
+          <AutoLogon>
+            <Password>
+              <Value>123456</Value>
+              <PlainText>true</PlainText>
+            </Password>
+            <Enabled>true</Enabled>
+            <LogonCount>1</LogonCount>
+            <Username>Administrator</Username>
+          </AutoLogon>
+          <FirstLogonCommands>
+            <SynchronousCommand wcm:action="add">
+              <Order>1</Order>
+              <CommandLine>PowerShell -ExecutionPolicy Bypass -NoProfile -File F:\post-install.ps1</CommandLine>
+              <Description>Run post-install script</Description>
+            </SynchronousCommand>
+          </FirstLogonCommands>
+          <TimeZone>Eastern Standard Time</TimeZone>
+        </component>
+      </settings>
+    </unattend>
+  post-install.ps1: |
+    # Runs once at the first logon. Log: C:\Windows\Temp\post-install.log
+    Start-Transcript -Path C:\Windows\Temp\post-install.log
+    # Install the virtio-win guest tools: drivers, incl. the VirtIO Socket driver
+    # and the "Virtio Socket Transport Bridge" service (VsockTcpBridge)
+    Start-Process msiexec -Wait -ArgumentList '/i E:\virtio-win-gt-x64.msi /qn /passive /norestart'
+    # Install the QEMU guest agent
+    Start-Process msiexec -Wait -ArgumentList '/i E:\guest-agent\qemu-ga-x86_64.msi /qn /passive /norestart'
+    # Install OpenSSH Server (Windows 11: downloaded from Windows Update, retried until online)
+    for ($i = 0; $i -lt 30 -and (Get-WindowsCapability -Online -Name 'OpenSSH.Server*').State -ne 'Installed'; $i++) {
+        try { Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Stop | Out-Null }
+        catch { Write-Output "OpenSSH install attempt $i failed: $_"; Start-Sleep -Seconds 20 }
+    }
+    # Make OpenSSH Server reachable for `virtctl ssh --vsock`
+    Set-Service -Name sshd -StartupType Automatic
+    Set-Service -Name VsockTcpBridge -StartupType Automatic
+    Start-Service sshd
+    Start-Service VsockTcpBridge
+    # SSH key login for Administrator
+    New-Item -ItemType Directory -Force -Path C:\ProgramData\ssh | Out-Null
+    Set-Content -Path C:\ProgramData\ssh\administrators_authorized_keys -Encoding ascii -Value 'REPLACE_WITH_YOUR_SSH_PUBLIC_KEY'
+    icacls.exe C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
+    Get-Service sshd, VsockTcpBridge
+    Stop-Transcript

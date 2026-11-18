@@ -1,0 +1,14 @@
+; SELinux policy module for SSH over AF_VSOCK with systemd socket activation
+; (sshd-vsock.socket with Accept=yes + sshd-vsock@.service running "sshd -i").
+; Works on RHEL 8 and RHEL 9. Install: semodule -i sshd_vsock.cil
+; Remove: semodule -r sshd_vsock
+
+; systemd (init_t) creates the listening vsock socket labeled with the
+; target service domain (sshd_t) and accepts connections on it.
+; (Already permitted by the RHEL 9 policy; needed on RHEL 8.)
+(allow init_t sshd_t (vsock_socket (create bind listen accept getattr setopt)))
+
+; sshd -i uses the accepted vsock socket on stdin/stdout ...
+(allow sshd_t self (vsock_socket (read write getattr)))
+; ... and so does its unprivileged pre-authentication child.
+(allow sshd_net_t sshd_t (vsock_socket (read write)))

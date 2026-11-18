@@ -1,0 +1,76 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: rhel9-vsock
+spec:
+  runStrategy: Always
+  instancetype:
+    kind: VirtualMachineClusterInstancetype
+    name: u1.medium
+  preference:
+    kind: VirtualMachineClusterPreference
+    name: rhel.9
+  dataVolumeTemplates:
+    - metadata:
+        name: rhel9-vsock-root
+      spec:
+        sourceRef:
+          kind: DataSource
+          name: rhel9
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources:
+            requests:
+              storage: 30Gi
+  template:
+    spec:
+      domain:
+        devices:
+          autoattachVSOCK: true
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: rhel9-vsock-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              user: cloud-user
+              ssh_authorized_keys:
+                - REPLACE_WITH_YOUR_SSH_PUBLIC_KEY
+              # RHEL 8/9: socket units + SELinux module (full files: guest/rhel8-rhel9/)
+              write_files:
+                - path: /etc/systemd/system/sshd-vsock.socket
+                  content: |
+                    [Unit]
+                    Description=OpenSSH server socket (AF_VSOCK)
+                    [Socket]
+                    ListenStream=vsock::22
+                    Accept=yes
+                    [Install]
+                    WantedBy=sockets.target
+                - path: /etc/systemd/system/sshd-vsock@.service
+                  content: |
+                    [Unit]
+                    Description=OpenSSH per-connection server (AF_VSOCK)
+                    Wants=sshd-keygen.target
+                    After=sshd-keygen.target
+                    [Service]
+                    Type=simple
+                    Environment=OPTIONS= CRYPTO_POLICY=
+                    EnvironmentFile=-/etc/crypto-policies/back-ends/opensshserver.config
+                    EnvironmentFile=-/etc/sysconfig/sshd
+                    ExecStart=-/usr/sbin/sshd -i $OPTIONS $CRYPTO_POLICY
+                    StandardInput=socket
+                    StandardOutput=socket
+                    StandardError=journal
+                - path: /etc/selinux/sshd_vsock.cil
+                  content: |
+                    (allow init_t sshd_t (vsock_socket (create bind listen accept getattr setopt)))
+                    (allow sshd_t self (vsock_socket (read write getattr)))
+                    (allow sshd_net_t sshd_t (vsock_socket (read write)))
+              runcmd:
+                - restorecon -R /etc/systemd/system
+                - semodule -i /etc/selinux/sshd_vsock.cil
+                - systemctl daemon-reload
+                - systemctl enable --now sshd-vsock.socket

@@ -1,0 +1,39 @@
+# Windows Server 2025 Evaluation ISO, imported once into
+# openshift-virtualization-os-images. Every Windows VM clones it from there,
+# so the ISO is downloaded only once. Apply as cluster-admin:
+#
+#   oc apply -f windows2k25-iso.yaml
+#
+# If the link has expired, take the current one from
+# https://www.microsoft.com/evalcenter/download-windows-server-2025
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: windows2k25-iso
+  namespace: openshift-virtualization-os-images
+  annotations:
+    cdi.kubevirt.io/storage.bind.immediate.requested: 'true'
+spec:
+  source:
+    http:
+      url: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+  storage:
+    resources:
+      requests:
+        storage: 8Gi
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataSource
+metadata:
+  name: windows2k25-iso
+  namespace: openshift-virtualization-os-images
+  labels:
+    kubevirt.io/iso: 'true'
+    template.kubevirt.io/architecture: amd64
+    instancetype.kubevirt.io/default-instancetype: u1.large
+    instancetype.kubevirt.io/default-preference: windows.2k25.virtio
+spec:
+  source:
+    pvc:
+      name: windows2k25-iso
+      namespace: openshift-virtualization-os-images

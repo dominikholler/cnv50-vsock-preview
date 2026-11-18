@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenSSH per-connection server (AF_VSOCK)
+Documentation=man:sshd(8) man:sshd_config(5)
+Wants=sshd-keygen.target
+After=sshd-keygen.target
+
+[Service]
+Type=simple
+Environment=OPTIONS= CRYPTO_POLICY=
+EnvironmentFile=-/etc/crypto-policies/back-ends/opensshserver.config
+EnvironmentFile=-/etc/sysconfig/sshd
+ExecStart=-/usr/sbin/sshd -i $OPTIONS $CRYPTO_POLICY
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal

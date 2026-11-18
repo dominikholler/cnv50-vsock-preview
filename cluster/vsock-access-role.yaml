@@ -1,0 +1,13 @@
+# Lets non-cluster-admin users use `virtctl ssh/scp/port-forward --vsock`.
+# The default admin/edit roles do not include the vsock subresource.
+# Usage:
+#   oc apply -n <namespace> -f vsock-access-role.yaml
+#   oc create rolebinding vsock-access -n <namespace> --role=vsock-access --user=<user>
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vsock-access
+rules:
+  - apiGroups: ["subresources.kubevirt.io"]
+    resources: ["virtualmachineinstances/vsock"]
+    verbs: ["get"]

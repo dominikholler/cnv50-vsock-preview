@@ -1,0 +1,271 @@
+# Windows Server 2025 (Evaluation) VM, installed unattended from the Microsoft ISO,
+# reachable with `virtctl ssh --vsock`. Needs the ISO from windows2k25-iso.yaml.
+# For more VMs, change all "windows2k25-vsock" names, or use separate namespaces.
+#
+#   sed "s|REPLACE_WITH_YOUR_SSH_PUBLIC_KEY|$(cat ~/.ssh/vsock_test.pub)|" windows2k25-vsock.yaml | oc apply -n $NS -f -
+#
+# The first boot stops at "Press any key to boot from CD or DVD": press a key in the VNC console.
+# Administrator password (console only): 123456 - change it in unattend.xml below.
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: windows2k25-vsock
+spec:
+  runStrategy: Always
+  instancetype:
+    kind: VirtualMachineClusterInstancetype
+    name: u1.large
+  preference:
+    kind: VirtualMachineClusterPreference
+    name: windows.2k25.virtio
+  dataVolumeTemplates:
+    - metadata:
+        name: windows2k25-vsock-root
+      spec:
+        source:
+          blank: {}
+        storage:
+          resources:
+            requests:
+              storage: 64Gi
+    - metadata:
+        name: windows2k25-vsock-iso
+      spec:
+        # Clone of the ISO imported once by windows2k25-iso.yaml
+        sourceRef:
+          kind: DataSource
+          name: windows2k25-iso
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources: {}
+  template:
+    spec:
+      domain:
+        devices:
+          autoattachVSOCK: true
+          disks:
+            - bootOrder: 1
+              disk:
+                bus: virtio
+              name: rootdisk
+            - bootOrder: 2
+              cdrom:
+                bus: sata
+              name: win-iso
+            - cdrom:
+                bus: sata
+              name: windows-drivers-disk
+            - cdrom:
+                bus: sata
+              name: sysprep
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: windows2k25-vsock-root
+        - name: win-iso
+          dataVolume:
+            name: windows2k25-vsock-iso
+        - name: windows-drivers-disk
+          containerDisk:
+            image: registry.redhat.io/container-native-virtualization/virtio-win-rhel9:v5.0
+        - name: sysprep
+          sysprep:
+            configMap:
+              name: windows2k25-vsock-sysprep
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: windows2k25-vsock-sysprep
+data:
+  # Windows Setup answer file: installs Windows, runs post-install.ps1 in audit mode, generalizes.
+  autounattend.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <settings pass="windowsPE">
+        <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <SetupUILanguage>
+            <UILanguage>en-US</UILanguage>
+          </SetupUILanguage>
+          <InputLocale>0409:00000409</InputLocale>
+          <SystemLocale>en-US</SystemLocale>
+          <UILanguage>en-US</UILanguage>
+          <UserLocale>en-US</UserLocale>
+        </component>
+        <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <DriverPaths>
+            <PathAndCredentials wcm:action="add" wcm:keyValue="1">
+                    <Path>E:\viostor\2k25\amd64</Path>
+            </PathAndCredentials>
+          </DriverPaths>
+        </component>
+        <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <DiskConfiguration>
+            <WillShowUI>OnError</WillShowUI>
+            <Disk wcm:action="add">
+                  <CreatePartitions>
+                        <CreatePartition wcm:action="add">
+                            <Order>1</Order>
+                            <Size>260</Size>
+                            <Type>EFI</Type>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Order>2</Order>
+                            <Size>16</Size>
+                            <Type>MSR</Type>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Order>3</Order>
+                            <Size>2048</Size>
+                            <Type>Primary</Type>
+                        </CreatePartition>
+                        <CreatePartition wcm:action="add">
+                            <Size>61440</Size>
+                            <Order>4</Order>
+                            <Type>Primary</Type>
+                        </CreatePartition>
+                    </CreatePartitions>
+                    <ModifyPartitions>
+                        <ModifyPartition wcm:action="add">
+                            <Format>FAT32</Format>
+                            <Order>1</Order>
+                            <PartitionID>1</PartitionID>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>2</Order>
+                            <PartitionID>2</PartitionID>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Format>NTFS</Format>
+                            <Order>3</Order>
+                            <PartitionID>3</PartitionID>
+                            <TypeID>de94bba4-06d1-4d40-a16a-bfd50179d6ac</TypeID>
+                            <Label>Recovery</Label>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Format>NTFS</Format>
+                            <Order>4</Order>
+                            <PartitionID>4</PartitionID>
+                            <Label>Windows</Label>
+                        </ModifyPartition>
+                    </ModifyPartitions>
+              <DiskID>0</DiskID>
+              <WillWipeDisk>true</WillWipeDisk>
+            </Disk>
+          </DiskConfiguration>
+          <ImageInstall>
+            <OSImage>
+              <InstallFrom>
+                <MetaData wcm:action="add">
+                                                            <!-- <Key>/Image/Description</Key> -->
+                                                            <!-- <Value>Windows Server 2025 Standard Evaluation (Desktop Experience)</Value> -->
+                        <Key>/IMAGE/INDEX </Key>
+                  <Value>2</Value>
+                </MetaData>
+              </InstallFrom>
+              <InstallTo>
+                <DiskID>0</DiskID>
+                <PartitionID>4</PartitionID>
+              </InstallTo>
+            </OSImage>
+          </ImageInstall>
+          <UserData>
+            <AcceptEula>true</AcceptEula>
+            <ProductKey>
+              <Key/>
+            </ProductKey>
+          </UserData>
+        </component>
+      </settings>
+      <settings pass="specialize">
+        <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <InputLocale>0409:00000409</InputLocale>
+          <SystemLocale>en-US</SystemLocale>
+          <UILanguage>en-US</UILanguage>
+          <UserLocale>en-US</UserLocale>
+        </component>
+      </settings>
+      <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <Reseal>
+            <Mode>Audit</Mode>
+          </Reseal>
+        </component>
+      </settings>
+      <settings pass="auditUser">
+        <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <RunSynchronous>
+            <RunSynchronousCommand wcm:action="add">
+              <Order>1</Order>
+              <Path>PowerShell -ExecutionPolicy Bypass -NoProfile F:\post-install.ps1</Path>
+              <Description>Run post-install script</Description>
+            </RunSynchronousCommand>
+          </RunSynchronous>
+          <Generalize>
+            <ForceShutdownNow>true</ForceShutdownNow>
+            <Mode>OOBE</Mode>
+          </Generalize>
+        </component>
+      </settings>
+    </unattend>
+  # Answer file for the first boot after generalize (OOBE).
+  unattend.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <unattend xmlns="urn:schemas-microsoft-com:unattend">
+      <settings pass="specialize">
+        <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <ExtendOSPartition>
+            <Extend>true</Extend>
+          </ExtendOSPartition>
+        </component>
+      </settings>
+      <settings pass="oobeSystem">
+        <component xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+          <OOBE>
+            <HideEULAPage>true</HideEULAPage>
+            <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+            <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+            <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+            <NetworkLocation>Work</NetworkLocation>
+            <SkipUserOOBE>true</SkipUserOOBE>
+            <SkipMachineOOBE>true</SkipMachineOOBE>
+            <ProtectYourPC>3</ProtectYourPC>
+          </OOBE>
+          <AutoLogon>
+            <Password>
+              <Value>123456</Value>
+              <PlainText>true</PlainText>
+            </Password>
+            <Enabled>true</Enabled>
+            <Username>Administrator</Username>
+          </AutoLogon>
+          <UserAccounts>
+            <AdministratorPassword>
+              <Value>123456</Value>
+              <PlainText>true</PlainText>
+            </AdministratorPassword>
+          </UserAccounts>
+          <RegisteredOrganization/>
+          <RegisteredOwner/>
+          <TimeZone>Eastern Standard Time</TimeZone>
+        </component>
+      </settings>
+    </unattend>
+  post-install.ps1: |
+    # Runs once in audit mode, then sysprep generalizes and shuts down the VM.
+    # Install the virtio-win guest tools: drivers, incl. the VirtIO Socket driver
+    # and the "Virtio Socket Transport Bridge" service (VsockTcpBridge)
+    Start-Process msiexec -Wait -ArgumentList '/i E:\virtio-win-gt-x64.msi /qn /passive /norestart'
+    # Install the QEMU guest agent
+    Start-Process msiexec -Wait -ArgumentList '/i E:\guest-agent\qemu-ga-x86_64.msi /qn /passive /norestart'
+    # Make OpenSSH Server reachable for `virtctl ssh --vsock`
+    Set-Service -Name sshd -StartupType Automatic
+    Set-Service -Name VsockTcpBridge -StartupType Automatic
+    # SSH key login for Administrator
+    New-Item -ItemType Directory -Force -Path C:\ProgramData\ssh | Out-Null
+    Set-Content -Path C:\ProgramData\ssh\administrators_authorized_keys -Encoding ascii -Value 'REPLACE_WITH_YOUR_SSH_PUBLIC_KEY'
+    icacls.exe C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'
+    # Rename cached unattend.xml so that sysprep does not pick it up
+    mv C:\Windows\Panther\unattend.xml C:\Windows\Panther\unattend.install.xml
+    # Eject the sysprep CD so that its unattend.xml is not picked up during generalize
+    (New-Object -COMObject Shell.Application).NameSpace(17).ParseName("F:").InvokeVerb("Eject")

@@ -1,0 +1,41 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: rhel10-vsock
+spec:
+  runStrategy: Always
+  instancetype:
+    kind: VirtualMachineClusterInstancetype
+    name: u1.medium
+  preference:
+    kind: VirtualMachineClusterPreference
+    name: rhel.10
+  dataVolumeTemplates:
+    - metadata:
+        name: rhel10-vsock-root
+      spec:
+        sourceRef:
+          kind: DataSource
+          name: rhel10
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources:
+            requests:
+              storage: 30Gi
+  template:
+    spec:
+      domain:
+        devices:
+          autoattachVSOCK: true
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: rhel10-vsock-root
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              user: cloud-user
+              ssh_authorized_keys:
+                - REPLACE_WITH_YOUR_SSH_PUBLIC_KEY
+              # RHEL 10: nothing else needed, systemd-ssh-generator creates the vsock listener
