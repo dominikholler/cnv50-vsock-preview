@@ -1,0 +1,30 @@
+- name: Linux guests over VSOCK
+  hosts: linux
+  tasks:
+    - name: Show how Ansible reached the guest
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution }} {{ ansible_distribution_version }}, interfaces: {{ ansible_interfaces | sort | join(', ') }}, SSH_CONNECTION={{ ansible_env.SSH_CONNECTION }}"
+    - name: Make a change as root
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/motd.d/ansible-vsock
+        content: "Managed by Ansible over VSOCK\n"
+        mode: "0644"
+
+- name: Windows guests over VSOCK
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Check the connection
+      ansible.windows.win_ping:
+    - name: Run a command
+      ansible.windows.win_shell: "(Get-CimInstance Win32_OperatingSystem).Caption + ', ' + $env:COMPUTERNAME"
+      register: os
+      changed_when: false
+    - name: Show the result
+      ansible.builtin.debug:
+        msg: "{{ os.stdout | trim }}"
+    - name: Make a change
+      ansible.windows.win_copy:
+        dest: C:\Windows\Temp\ansible-vsock.txt
+        content: "Managed by Ansible over VSOCK"

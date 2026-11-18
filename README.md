@@ -48,6 +48,7 @@ vms/windows11-iso.yaml          Windows 11 ISO, imported once, shared by all Win
 vms/windows11-vsock.yaml        Windows 11 Pro VM, unattended install from that ISO
 guest/rhel8-rhel9/              the same guest files, plus install.sh for existing VMs
 windows/enable-ssh.ps1          Windows guest setup for existing VMs
+ansible/                        Ansible inventory (kubevirt.core) and example playbook over VSOCK
 ```
 
 ## 1. Enable the feature (cluster-admin)
@@ -193,6 +194,47 @@ The VM needs the virtio-win guest tools (`virtio-win-gt-x64.msi` from the virtio
 
 Windows needs no inbound firewall rule: VSOCK doesn't require inbound TCP access.
 
+## Manage the guests with Ansible
+
+Ansible's `ssh` connection can use the same proxy as `virtctl ssh --vsock`, so
+playbooks reach the guests without inbound TCP access, also VMs with no IP address.
+The `kubevirt.core` inventory plugin finds the VMs. `ansible/group_vars/all.yml`
+sets the proxy:
+
+```yaml
+ansible_ssh_common_args: >-
+  -o ProxyCommand="{{ virtctl_path }} port-forward --stdio=true --vsock --vsock-tls=false
+  vmi/{{ vm_name }}/{{ vm_namespace }} 22"
+```
+
+1. Install Ansible, the Kubernetes Python client, and the collections:
+   ```bash
+   pip install ansible-core kubernetes
+   ansible-galaxy collection install -r ansible/requirements.yml
+   ```
+2. Set your namespace and the path of the `virtctl` from step 2:
+   ```bash
+   cd ansible
+   sed -i "s/REPLACE_WITH_YOUR_NAMESPACE/$NS/" vsock.kubevirt.yml
+   sed -i "s|^virtctl_path: virtctl|virtctl_path: $(realpath ../virtctl-1.10)|" group_vars/all.yml
+   ```
+3. Check the inventory, then run the example playbook:
+   ```bash
+   ansible-inventory -i vsock.kubevirt.yml --graph
+   ansible-playbook -i vsock.kubevirt.yml site.yml
+   ```
+
+Notes:
+
+- **Credentials:** Ansible uses your current `oc` login (`KUBECONFIG`) and the SSH key `~/.ssh/vsock_test`.
+  The step 3 permissions apply.
+- **Grouping:** VMs are put into the `linux` and `windows` groups by the OS that the guest agent
+  reports, so only running VMs with the agent are grouped.
+- **Windows:** `default_win_ansible_connection: ssh` in the inventory makes the plugin use SSH
+  instead of WinRM. The `cmd` shell matches the default shell of Windows OpenSSH.
+- **Host keys:** host keys are stored per VM (`<vm>.<namespace>`) in
+  `~/.ssh/kubevirt_vsock_known_hosts`, so a changed pod IP doesn't trigger a warning.
+
 ## Clean up
 
 1. Delete the lab VMs and their sysprep ConfigMaps:
@@ -237,6 +279,10 @@ OpenShift Virtualization 5.0.0 (KubeVirt v1.9.0), `virtctl` v1.10.0-rc.1, SELinu
 | Windows Server 2025 (26100), existing VM + `enable-ssh.ps1` | ✅ |
 | Windows Server 2025 (26100), `vms/windows2k25-vsock.yaml`, SSH key login | ✅ |
 | Windows 11 Pro 25H2 (26200), `vms/windows11-vsock.yaml`, SSH key login | ✅ |
+
+Ansible (`ansible/`, ansible-core 2.22, kubevirt.core 2.3.0 from Galaxy): `site.yml` passes on
+RHEL 9.9, RHEL 10.3 without a network interface, Windows Server 2025 and Windows 11, including
+changes as root (`become`). A second run changes nothing.
 
 Also tested without working networking. `virtctl ssh/scp --vsock` work in all of these cases:
 

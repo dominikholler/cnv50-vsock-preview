@@ -1,0 +1,18 @@
+# kubevirt.core inventory: Ansible reaches the guests with SSH over VSOCK
+# (virtctl port-forward --stdio --vsock), no inbound TCP access needed.
+# The file name must end with kubevirt.yml.
+plugin: kubevirt.core.kubevirt
+namespaces:
+  - REPLACE_WITH_YOUR_NAMESPACE
+# Host names are <vm>.<namespace>. Namespaces can't contain dots, so the last
+# dot separates the two (used for vm_name / vm_namespace below).
+host_format: "{name}.{namespace}"
+# The plugin defaults Windows guests to WinRM; use SSH over VSOCK instead.
+default_win_ansible_connection: ssh
+compose:
+  vm_name: inventory_hostname | regex_replace('\.[^.]+$', '')
+  vm_namespace: inventory_hostname | regex_replace('^.*\.', '')
+groups:
+  # Based on the guest agent, so only running VMs with the agent are grouped.
+  windows: (vmi_guest_os_info | default({})).get('id', '') == 'mswindows'
+  linux: vmi_guest_os_info is defined and (vmi_guest_os_info | default({})).get('id', '') != 'mswindows'
