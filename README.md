@@ -21,9 +21,9 @@ Tested guests: RHEL 8, 9, 10, Windows Server 2025 and Windows 11 (see [Tested](#
   the upstream KubeVirt v1.10.0-rc.1 `virtctl` (step 2).
 - **Annotation side effects:** HCO reports `TaintedConfiguration=True` while the annotation is set.
 - **Version mismatch:** the upstream 1.10 `virtctl` isn't the client shipped with 5.0. We tested this combination with the guest images listed below.
-- **RBAC:** non-cluster-admin users need extra permissions, even namespace admins (see step 3).
+- **RBAC:** non-cluster-admin users need extra permissions, even namespace admins. A cluster-admin grants them (step 3).
 - **VM changes:** VMs need `autoattachVSOCK: true`. Adding it to an existing VM takes effect after a restart.
-- **Turning the gate off:** VMs that set `autoattachVSOCK: true` won't start.
+- **Gate off:** while the gate is off, VMs that set `autoattachVSOCK: true` can't be created or started. VMs that are already running keep their vsock device, and stay reachable over it, until they are stopped.
 
 Guest support:
 
@@ -72,7 +72,9 @@ chmod +x virtctl-1.10
 ./virtctl-1.10 ssh --help | grep -- --vsock
 ```
 
-## 3. Grant access (skip for cluster-admin)
+## 3. Grant access (cluster-admin; skip if the user is cluster-admin)
+
+Namespace admins can't create this Role themselves, because it grants a permission they don't have.
 
 ```bash
 NS=<namespace>    # namespace for the test VMs, used in all following steps
@@ -115,7 +117,7 @@ Copy files, or forward the guest's SSH port to your workstation for other SSH to
 
 ```bash
 ./virtctl-1.10 scp --vsock -i ~/.ssh/vsock_test ./file cloud-user@vmi/rhel9-vsock/$NS:/tmp/
-./virtctl-1.10 port-forward --vsock --vsock-tls=false vmi/rhel9-vsock/$NS 2222:22   # then: ssh -p 2222 cloud-user@127.0.0.1
+./virtctl-1.10 port-forward --vsock --vsock-tls=false vmi/rhel9-vsock/$NS 2222:22   # then: ssh -i ~/.ssh/vsock_test -p 2222 cloud-user@127.0.0.1
 ```
 
 `--vsock-tls=false` is required for SSH. `virtctl ssh/scp` set it automatically.
