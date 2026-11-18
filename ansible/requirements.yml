@@ -1,0 +1,4 @@
+collections:
+  - name: kubevirt.core
+    version: ">=2.3.0"    # default_win_ansible_connection needs 2.3.0
+  - name: ansible.windows  # only for the Windows examples
