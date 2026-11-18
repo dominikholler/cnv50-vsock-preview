@@ -52,6 +52,9 @@ windows/enable-ssh.ps1          Windows guest setup for existing VMs
 
 ## 1. Enable the feature (cluster-admin)
 
+Turn on KubeVirt's `VSOCK` feature gate by adding it to the HyperConverged CR's
+`kubevirt.kubevirt.io/jsonpatch` annotation, which passes it on to the KubeVirt CR.
+
 ```bash
 ./cluster/enable-vsock.sh
 ```
@@ -229,33 +232,18 @@ Run `./cluster/disable-vsock.sh` before you upgrade OpenShift Virtualization.
 
 ## Tested
 
-`virtctl` v1.10.0-rc.1, SELinux enforcing.
+`virtctl` v1.10.0-rc.1, SELinux enforcing, on OpenShift Virtualization 4.20.35 (KubeVirt v1.6.6)
+and 5.0.0 (KubeVirt v1.9.0). On 4.20, all steps of this guide ran as a namespace admin with the
+step 3 Role. Every ✅ was tested on both versions.
 
-OpenShift Virtualization 4.20.35 (KubeVirt v1.6.6), all steps of this guide run as a
-namespace admin with the step 3 Role:
+| Guest | Setup | ssh / scp | No network interface | Network adapter disabled in the guest |
+|---|---|---|---|---|
+| RHEL 10.3 | `vms/rhel10-vsock.yaml` | ✅ | ✅ | – |
+| RHEL 9.9 | `vms/rhel9-vsock.yaml` | ✅ | – | – |
+| RHEL 8.10 | `vms/rhel8-vsock.yaml` | ✅ | – | – |
+| Windows Server 2025 (26100) | `vms/windows2k25-vsock.yaml`, SSH key login | ✅ | ✅ | ✅ |
+| Windows Server 2025 (26100) | existing VM + `enable-ssh.ps1` | ✅ | – | – |
+| Windows 11 Pro 25H2 (26200) | `vms/windows11-vsock.yaml`, SSH key login | ✅ | – | – |
 
-| Guest | Result |
-|---|---|
-| RHEL 10.3 | ✅ |
-| RHEL 9.9 | ✅ |
-| RHEL 8.10 | ✅ |
-| Windows Server 2025 (26100), `vms/windows2k25-vsock.yaml`, SSH key login, then `enable-ssh.ps1` | ✅ |
-| Windows 11 Pro 25H2 (26200), `vms/windows11-vsock.yaml`, SSH key login | ✅ |
-
-OpenShift Virtualization 5.0.0 (KubeVirt v1.9.0):
-
-| Guest | Result |
-|---|---|
-| RHEL 10.3 | ✅ |
-| RHEL 9.9 | ✅ |
-| RHEL 8.10 | ✅ |
-| Windows Server 2025 (26100), existing VM + `enable-ssh.ps1` | ✅ |
-| Windows Server 2025 (26100), `vms/windows2k25-vsock.yaml`, SSH key login | ✅ |
-| Windows 11 Pro 25H2 (26200), `vms/windows11-vsock.yaml`, SSH key login | ✅ |
-
-Also tested without working networking. `virtctl ssh/scp --vsock` work in all of these cases:
-
-| Case | Guest |
-|---|---|
-| No network interface (`autoattachPodInterface: false`), only loopback in the guest | RHEL 10, Windows Server 2025 (4.20 and 5.0) |
-| Network adapter disabled inside the guest (no IP, no internet); regular `virtctl ssh` fails | Windows Server 2025 (4.20 and 5.0) |
+"No network interface": `autoattachPodInterface: false`, only loopback in the guest.
+"Network adapter disabled": no IP, no internet; regular `virtctl ssh` fails. "–": not tested.
