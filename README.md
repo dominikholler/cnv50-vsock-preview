@@ -1,29 +1,26 @@
 # Run commands in a VM without network access – preview on OpenShift Virtualization 5.0
 
-OpenShift Virtualization 5.1 lets you open a shell, run commands, and copy files
-in a VM with `virtctl ssh` / `virtctl scp`, even if the VM has no network
-connection, no IP address, no Service, and no open SSH port. That's useful for
-isolated or air-gapped VMs, for VMs on secondary networks only, and for fixing a
-VM with broken networking.
+This guide shows how to use virtctl to open an SSH session and copy files through
+the OpenShift API when a VM has no reachable IP address. The examples were tested
+on OpenShift Virtualization 5.0.0 with the upstream virtctl v1.10.0-rc.1 client.
+This configuration is unsupported on 5.0. Please use a dedicated test cluster.
 
 Behind the scenes, `virtctl` reaches the guest's SSH server through the cluster
-API and a virtio-vsock host-guest channel instead of the VM network. On the
-command line this is the `--vsock` flag.
+API and a virtio-vsock host-guest channel. VSOCK doesn't require inbound TCP
+access to the VM, even if the guest also listens on TCP. On the command line
+this is the `--vsock` flag.
 
-This guide shows how to try it on **5.0** with RHEL 8, 9, 10, Windows Server 2025 and Windows 11.
-
-> **For testing only.** None of this is supported on 5.0. Use a test cluster.
+Tested guests: RHEL 8, 9, 10, Windows Server 2025 and Windows 11 (see [Tested](#tested)).
 
 ## Limitations in 5.0
 
-| | 5.0 | 5.1 |
-|---|---|---|
-| KubeVirt | 1.9 | 1.10 |
-| `VSOCK` feature gate | Alpha, off. Enabling it needs the **unsupported** jsonpatch annotation | Tech Preview, on by default |
-| `virtctl ssh/scp --vsock` | Not in the 5.0 `virtctl`. Use the upstream KubeVirt 1.10 `virtctl` | Included |
-
+- **Feature gate:** OpenShift Virtualization 5.0 is based on KubeVirt 1.9, where the
+  `VSOCK` feature gate is Alpha and off by default. Turning it on needs the
+  **unsupported** jsonpatch annotation (step 1).
+- **Client:** the `virtctl` shipped with 5.0 has no `--vsock` option. This guide uses
+  the upstream KubeVirt v1.10.0-rc.1 `virtctl` (step 2).
 - **Annotation side effects:** HCO reports `TaintedConfiguration=True` while the annotation is set.
-- **Version mismatch:** a 1.10 `virtctl` with a 1.9 cluster is an untested combination. It works for this feature.
+- **Version mismatch:** the upstream 1.10 `virtctl` isn't the client shipped with 5.0. We tested this combination with the guest images listed below.
 - **RBAC:** non-cluster-admin users need extra permissions, even namespace admins (see step 3).
 - **VM changes:** VMs need `autoattachVSOCK: true`. Adding it to an existing VM takes effect after a restart.
 - **Turning the gate off:** VMs that set `autoattachVSOCK: true` won't start.
@@ -39,8 +36,8 @@ Guest support:
 ## Files
 
 ```
-cluster/enable-vsock.sh         enable the VSOCK feature gate (jsonpatch annotation)
-cluster/disable-vsock.sh        remove it again
+cluster/enable-vsock.sh         enable the VSOCK feature gate (adds one jsonpatch operation)
+cluster/disable-vsock.sh        remove that operation again, other jsonpatch operations stay
 cluster/vsock-access-role.yaml  RBAC for non-cluster-admin users
 vms/rhel10-vsock.yaml           RHEL 10 VM
 vms/rhel9-vsock.yaml            RHEL 9 VM, guest set up by cloud-init
@@ -59,9 +56,9 @@ windows/enable-ssh.ps1          Windows guest setup for existing VMs
 ./cluster/enable-vsock.sh
 ```
 
-The script stops if the HyperConverged CR already has a different
-`kubevirt.kubevirt.io/jsonpatch` annotation. In that case, add the VSOCK
-operation to the existing annotation yourself.
+If the HyperConverged CR already has a `kubevirt.kubevirt.io/jsonpatch`
+annotation, the script adds the VSOCK operation and keeps the existing ones.
+The scripts need only `oc` and `bash`.
 
 ## 2. Get a `virtctl` that supports it
 
@@ -78,8 +75,9 @@ chmod +x virtctl-1.10
 ## 3. Grant access (skip for cluster-admin)
 
 ```bash
-oc apply -n <namespace> -f cluster/vsock-access-role.yaml
-oc create rolebinding vsock-access -n <namespace> --role=vsock-access --user=<user>
+NS=<namespace>    # namespace for the test VMs, used in all following steps
+oc apply -n $NS -f cluster/vsock-access-role.yaml
+oc create rolebinding vsock-access -n $NS --role=vsock-access --user=<user>
 ```
 
 ## 4. Create the RHEL VMs
@@ -90,7 +88,7 @@ RHEL 8/9 manifests don't leave room for a 4096-bit RSA key.
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/vsock_test -N ''
 KEY=$(cat ~/.ssh/vsock_test.pub)
-NS=<namespace>
+NS=${NS:-<namespace>}
 for v in 8 9 10; do
   sed "s|REPLACE_WITH_YOUR_SSH_PUBLIC_KEY|$KEY|" vms/rhel$v-vsock.yaml | oc apply -n $NS -f -
 done
@@ -110,8 +108,8 @@ done
 ```
 
 Leave out `-c ...` to get an interactive shell. `SSH_CONNECTION=UNKNOWN 65535 ...`
-shows that the connection didn't use the VM network (over the network you'd see
-an IP address).
+shows that the connection came in over VSOCK, not inbound TCP (over TCP you'd
+see an IP address).
 
 Copy files, or forward the guest's SSH port to your workstation for other SSH tools:
 
@@ -191,21 +189,39 @@ The VM needs the virtio-win guest tools (`virtio-win-gt-x64.msi` from the virtio
    ./virtctl-1.10 ssh --vsock -c 'hostname & ver' Administrator@vmi/<windows-vm>/$NS
    ```
 
-Windows needs no firewall rule, because the connection doesn't use the VM network.
+Windows needs no inbound firewall rule: VSOCK doesn't require inbound TCP access.
 
 ## Clean up
 
-```bash
-oc delete vm -n $NS rhel8-vsock rhel9-vsock rhel10-vsock windows2k25-vsock windows11-vsock
-oc delete cm -n $NS windows2k25-vsock-sysprep windows11-vsock-sysprep
-oc delete -f vms/windows2k25-iso.yaml -f vms/windows11-iso.yaml
-oc patch vm <windows-vm> -n $NS --type json \
-  -p '[{"op":"remove","path":"/spec/template/spec/domain/devices/autoattachVSOCK"}]'
-./cluster/disable-vsock.sh
-```
+1. Delete the lab VMs and their sysprep ConfigMaps:
+   ```bash
+   oc delete vm -n $NS rhel8-vsock rhel9-vsock rhel10-vsock windows2k25-vsock windows11-vsock --ignore-not-found
+   oc delete cm -n $NS windows2k25-vsock-sysprep windows11-vsock-sysprep --ignore-not-found
+   ```
+2. On VMs you keep, remove the vsock device (VMs with it won't start once the feature is off):
+   ```bash
+   oc patch vm <vm> -n $NS --type json \
+     -p '[{"op":"remove","path":"/spec/template/spec/domain/devices/autoattachVSOCK"}]'
+   ```
+3. Remove the access Role and RoleBinding from step 3, if you created them:
+   ```bash
+   oc delete rolebinding vsock-access -n $NS --ignore-not-found
+   oc delete -n $NS -f cluster/vsock-access-role.yaml --ignore-not-found
+   ```
+4. Turn the feature off (cluster-admin):
+   ```bash
+   ./cluster/disable-vsock.sh
+   ```
+   This removes only the VSOCK operation. Other operations in the
+   `kubevirt.kubevirt.io/jsonpatch` annotation stay. The annotation is deleted
+   only if VSOCK was its only operation.
+5. Optional: delete the shared Windows ISOs (cluster-admin). Skip this if other
+   users or future Windows VMs still need them. Existing VMs keep their own copy.
+   ```bash
+   oc delete -f vms/windows2k25-iso.yaml -f vms/windows11-iso.yaml --ignore-not-found
+   ```
 
-Before upgrading to 5.1, run `./cluster/disable-vsock.sh`. In 5.1, VSOCK is on
-by default and the 5.1 `virtctl` includes `--vsock`.
+Run `./cluster/disable-vsock.sh` before you upgrade OpenShift Virtualization.
 
 ## Tested
 
