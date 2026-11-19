@@ -60,7 +60,7 @@ Turn on KubeVirt's `VSOCK` feature gate by adding it to the HyperConverged CR's
 ```
 
 If the HyperConverged CR already has a `kubevirt.kubevirt.io/jsonpatch`
-annotation, the script adds the VSOCK operation and keeps the existing ones.
+annotation, the script adds the `VSOCK` flag and keeps the existing ones.
 The scripts need only `oc` and `bash`.
 
 ## 2. Get a `virtctl` that supports it
