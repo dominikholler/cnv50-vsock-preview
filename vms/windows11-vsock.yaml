@@ -132,12 +132,9 @@ data:
                   <Format>FAT32</Format>
                   <Label>EFI</Label>
                 </ModifyPartition>
+                <!-- The MSR partition cannot be modified. -->
                 <ModifyPartition wcm:action="add">
                   <Order>2</Order>
-                  <PartitionID>2</PartitionID>
-                </ModifyPartition>
-                <ModifyPartition wcm:action="add">
-                  <Order>3</Order>
                   <PartitionID>3</PartitionID>
                   <Format>NTFS</Format>
                   <Label>Windows</Label>
